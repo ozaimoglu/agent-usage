@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import { AgyAdapter, parseAgyUsage } from '../src/main/adapters/agy';
-import { CodexAdapter, discoverCodexHome, parseCodexRateLimits } from '../src/main/adapters/codex';
+import { CodexAdapter, discoverCodexHomes, parseCodexRateLimits } from '../src/main/adapters/codex';
 
 type FakeChild = EventEmitter & {
   stdout: EventEmitter;
@@ -58,13 +58,37 @@ function interactiveCodexSpawn() {
   });
 }
 
+function interactiveCodexProfilesSpawn() {
+  return vi.fn((_file: string, _args: readonly string[], options: { env?: NodeJS.ProcessEnv }) => {
+    const child = childProcess();
+    const plan = options.env?.CODEX_HOME ? 'pro' : 'plus';
+    child.stdin.write.mockImplementation((raw: string) => {
+      const message = JSON.parse(raw) as { id: number };
+      queueMicrotask(() => {
+        if (message.id === 1) child.stdout.emit('data', Buffer.from('{"id":1,"result":{}}\n'));
+        if (message.id === 2) {
+          const result = {
+            rateLimits: { planType: plan },
+            rateLimitsByLimitId: {
+              codex: { planType: plan, primary: { usedPercent: plan === 'pro' ? 10 : 30, windowDurationMins: 300 } },
+            },
+          };
+          child.stdout.emit('data', Buffer.from(`${JSON.stringify({ id: 2, result })}\n`));
+        }
+      });
+      return true;
+    });
+    return child;
+  });
+}
+
 describe('CLI adapters', () => {
   it('waits for Codex initialize before requesting quota and cleans up', async () => {
     const spawn = interactiveCodexSpawn();
     const adapter = new CodexAdapter({
       resolve: async () => '/tmp/codex',
       spawnProcess: spawn as never,
-      discoverCodexHome: async () => '/tmp/codex-profile',
+      discoverCodexHomes: async () => ['/tmp/codex-profile'],
     });
     const snapshot = await adapter.fetch(new AbortController().signal);
     const child = spawn.mock.results[0].value;
@@ -72,7 +96,7 @@ describe('CLI adapters', () => {
     expect(snapshot).toMatchObject({
       status: 'ok',
       balance: 12.5,
-      plan: 'pro',
+      plan: 'Pro',
       windows: [{ remainingPercent: 80, windowMinutes: 300, resetAt: '2027-01-15T08:00:00.000Z' }],
     });
     expect(spawn).toHaveBeenCalledWith('/tmp/codex', ['app-server', '--listen', 'stdio://'], expect.objectContaining({
@@ -86,24 +110,53 @@ describe('CLI adapters', () => {
     expect(child.kill).toHaveBeenCalledWith('SIGTERM');
   });
 
-  it('uses only an explicitly configured Codex home', async () => {
-    await expect(discoverCodexHome(' /tmp/codex-profile ')).resolves.toBe('/tmp/codex-profile');
-    await expect(discoverCodexHome('')).resolves.toBeUndefined();
+  it('honors an explicit Codex home and otherwise discovers sibling profiles', async () => {
+    await expect(discoverCodexHomes(' /tmp/codex-profile ')).resolves.toEqual(['/tmp/codex-profile']);
+    await expect(discoverCodexHomes('', '/home/user', async () => [
+      '/home/user/.codex-pro',
+      '/home/user/.codex-work',
+    ])).resolves.toEqual([undefined, '/home/user/.codex-pro', '/home/user/.codex-work']);
   });
 
-  it('renames the bengalfox Codex account without merging two accounts', () => {
+  it('filters model-specific Codex limits instead of presenting them as accounts', () => {
     const parsed = parseCodexRateLimits({
       rateLimits: {
+        planType: 'pro',
         rateLimitsByLimitId: {
-          codex_bengalfox: { primary: { usedPercent: 10 } },
-          codex_work: { primary: { usedPercent: 30 } },
+          codex: {
+            planType: 'pro',
+            primary: { usedPercent: 20, windowDurationMins: 300 },
+          },
+          codex_bengalfox: {
+            planType: 'pro',
+            limitName: 'GPT-5.3-Codex-Spark',
+            primary: { usedPercent: 10, windowDurationMins: 300 },
+          },
         },
       },
     });
-    expect(parsed.windows.map((window) => window.label)).toEqual([
-      'codex_plus · Primary',
-      'codex_work · Primary',
-    ]);
+    expect(parsed.windows.map((window) => window.label)).toEqual(['Codex Pro · 5H']);
+  });
+
+  it('combines standard Plus and sibling Pro profiles without merging their limits', async () => {
+    const spawn = interactiveCodexProfilesSpawn();
+    const adapter = new CodexAdapter({
+      resolve: async () => '/tmp/codex',
+      spawnProcess: spawn as never,
+      discoverCodexHomes: async () => [undefined, '/home/user/.codex-pro'],
+    });
+
+    await expect(adapter.fetch(new AbortController().signal)).resolves.toMatchObject({
+      status: 'ok',
+      plan: 'Pro + Plus',
+      windows: [
+        { label: 'Codex Pro · 5H', remainingPercent: 90 },
+        { label: 'Codex Plus · 5H', remainingPercent: 70 },
+      ],
+    });
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(spawn.mock.calls[0][2]).toEqual(expect.objectContaining({ env: expect.not.objectContaining({ CODEX_HOME: expect.anything() }) }));
+    expect(spawn.mock.calls[1][2]).toEqual(expect.objectContaining({ env: expect.objectContaining({ CODEX_HOME: '/home/user/.codex-pro' }) }));
   });
 
   it('flattens Agy 1.1 nested Gemini buckets into quota windows', () => {

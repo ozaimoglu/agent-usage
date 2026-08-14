@@ -34,8 +34,8 @@ describe('Linux tray bridge', () => {
   it('builds concise live menu summaries for each provider', () => {
     const labels = linuxTrayLabels({ refreshing: false, snapshots: [
       { providerId: 'codex', displayName: 'Codex', status: 'ok', fetchedAt: '2026-08-13T20:00:00Z', windows: [
-        { label: 'codex · Primary', remainingPercent: 85 },
-        { label: 'codex_plus · Primary', remainingPercent: 100 },
+        { label: 'Codex Pro · 5H', remainingPercent: 85 },
+        { label: 'Codex Plus · 5H', remainingPercent: 100 },
       ] },
       { providerId: 'agy', displayName: 'Agy', status: 'ok', fetchedAt: '2026-08-13T20:00:00Z', windows: [
         { label: 'Gemini Models · Weekly', remainingPercent: 70, windowMinutes: 10080 },

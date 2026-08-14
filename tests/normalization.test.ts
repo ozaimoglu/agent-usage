@@ -25,8 +25,8 @@ describe('provider payload parsing', () => {
       planType: 'pro',
     });
     expect(result.windows).toHaveLength(2);
-    expect(result.windows[0]).toMatchObject({ label: 'codex · Primary', remainingPercent: 75, resetAt: '2027-01-15T08:00:00.000Z', windowMinutes: 300 });
-    expect(result.windows[1]).toMatchObject({ label: 'codex · Secondary', remainingPercent: 40 });
+    expect(result.windows[0]).toMatchObject({ label: 'Codex Pro · 5H', remainingPercent: 75, resetAt: '2027-01-15T08:00:00.000Z', windowMinutes: 300 });
+    expect(result.windows[1]).toMatchObject({ label: 'Codex Pro · 7D', remainingPercent: 40 });
     expect(result.balance).toBe(12);
     expect(result.plan).toBe('pro');
   });

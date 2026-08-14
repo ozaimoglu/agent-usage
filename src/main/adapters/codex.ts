@@ -1,4 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { readdir } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import type { ProviderAdapter, ProviderSnapshot, UsageWindow } from '../../common/types';
 import { normalizeWindow } from '../../common/usage';
 import { resolveExecutable } from '../executableResolver';
@@ -9,13 +12,29 @@ interface CodexAdapterOptions {
   resolve?: typeof resolveExecutable;
   spawnProcess?: SpawnProcess;
   now?: () => Date;
-  discoverCodexHome?: () => Promise<string | undefined>;
+  discoverCodexHomes?: () => Promise<Array<string | undefined>>;
 }
 
-export async function discoverCodexHome(
+async function siblingCodexHomes(homeDirectory: string): Promise<string[]> {
+  try {
+    const entries = await readdir(homeDirectory, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory() && /^\.codex-.+/.test(entry.name))
+      .map((entry) => path.join(homeDirectory, entry.name))
+      .sort((left, right) => left.localeCompare(right));
+  } catch {
+    return [];
+  }
+}
+
+export async function discoverCodexHomes(
   inheritedHome = process.env.CODEX_HOME,
-): Promise<string | undefined> {
-  return inheritedHome?.trim() || undefined;
+  homeDirectory = os.homedir(),
+  discoverSiblings: (home: string) => Promise<string[]> = siblingCodexHomes,
+): Promise<Array<string | undefined>> {
+  const explicitHome = inheritedHome?.trim();
+  if (explicitHome) return [explicitHome];
+  return [undefined, ...await discoverSiblings(homeDirectory)];
 }
 
 function number(value: unknown): number | undefined {
@@ -30,8 +49,22 @@ function resetAt(value: unknown): string | undefined {
   return undefined;
 }
 
-function displayLimitId(id: string): string {
-  return id === 'codex_bengalfox' ? 'codex_plus' : id;
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function displayPlan(value: unknown): string {
+  const plan = text(value);
+  if (!plan) return 'Codex';
+  return `Codex ${plan.charAt(0).toUpperCase()}${plan.slice(1).toLowerCase()}`;
+}
+
+function displayLimit(id: string, group: Record<string, unknown>, fallbackPlan: unknown): string {
+  const base = displayPlan(group.planType ?? group.plan_type ?? fallbackPlan);
+  const limitName = text(group.limitName ?? group.limit_name);
+  if (id === 'codex') return base;
+  if (limitName) return `${base} · ${limitName}`;
+  return `${base} · ${id.replace(/^codex[_-]?/i, '').replace(/[_-]+/g, ' ') || id}`;
 }
 
 function parseLimit(label: string, value: unknown): UsageWindow | undefined {
@@ -41,16 +74,20 @@ function parseLimit(label: string, value: unknown): UsageWindow | undefined {
   const duration = number(item.windowDurationMins ?? item.windowMinutes ?? item.window_minutes ?? item.durationMinutes ?? item.duration_mins);
   const reset = resetAt(item.resetsAt ?? item.resetAt ?? item.reset_at);
   if (usedPercent === undefined && !reset && duration === undefined) return undefined;
-  return normalizeWindow({ label, usedPercent, resetAt: reset, windowMinutes: duration });
+  const durationLabel = duration === 300 ? '5H' : duration === 10_080 ? '7D' : undefined;
+  const displayLabel = durationLabel ? label.replace(/ · (Primary|Secondary)$/, ` · ${durationLabel}`) : label;
+  return normalizeWindow({ label: displayLabel, usedPercent, resetAt: reset, windowMinutes: duration });
 }
 
 export function parseCodexRateLimits(payload: unknown): { windows: UsageWindow[]; balance?: number; plan?: string } {
   if (!payload || typeof payload !== 'object') throw new Error('Codex yanıtı geçersiz.');
   const root = payload as Record<string, unknown>;
   const rateLimits = (root.rateLimits ?? root.rate_limits ?? root) as Record<string, unknown>;
+  const planValue = rateLimits.planType ?? rateLimits.plan ?? root.planType ?? root.plan;
+  const planLabel = displayPlan(planValue);
   const rootWindows: UsageWindow[] = [];
-  const primary = parseLimit('Primary', rateLimits.primary ?? rateLimits.primaryWindow ?? rateLimits.primary_window);
-  const secondary = parseLimit('Secondary', rateLimits.secondary ?? rateLimits.secondaryWindow ?? rateLimits.secondary_window);
+  const primary = parseLimit(`${planLabel} · Primary`, rateLimits.primary ?? rateLimits.primaryWindow ?? rateLimits.primary_window);
+  const secondary = parseLimit(`${planLabel} · Secondary`, rateLimits.secondary ?? rateLimits.secondaryWindow ?? rateLimits.secondary_window);
   if (primary) rootWindows.push(primary);
   if (secondary) rootWindows.push(secondary);
 
@@ -60,7 +97,10 @@ export function parseCodexRateLimits(payload: unknown): { windows: UsageWindow[]
     for (const [id, value] of Object.entries(byId)) {
       if (!value || typeof value !== 'object') continue;
       const group = value as Record<string, unknown>;
-      const displayId = displayLimitId(id);
+      // Model-specific buckets (for example GPT-5.3-Codex-Spark) are not
+      // account quotas. Keep the panel focused on the profile's plan limits.
+      if (id !== 'codex' && text(group.limitName ?? group.limit_name)) continue;
+      const displayId = displayLimit(id, group, planValue);
       const nestedPrimary = parseLimit(`${displayId} · Primary`, group.primary ?? group.primaryWindow ?? group.primary_window);
       const nestedSecondary = parseLimit(`${displayId} · Secondary`, group.secondary ?? group.secondaryWindow ?? group.secondary_window);
       if (nestedPrimary) providerWindows.push(nestedPrimary);
@@ -76,7 +116,6 @@ export function parseCodexRateLimits(payload: unknown): { windows: UsageWindow[]
   const windows = providerWindows.length ? providerWindows : rootWindows;
   const credits = (rateLimits.credits ?? root.credits) as Record<string, unknown> | undefined;
   const balance = credits ? number(credits.balance ?? credits.remaining) : undefined;
-  const planValue = rateLimits.planType ?? rateLimits.plan ?? root.planType ?? root.plan;
   if (!windows.length && balance === undefined) throw new Error('Codex kota alanları bulunamadı.');
   return { windows, balance, plan: typeof planValue === 'string' ? planValue : undefined };
 }
@@ -90,10 +129,13 @@ function runCodexSession(
   codexHome?: string,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
+    const environment = { ...process.env };
+    if (codexHome) environment.CODEX_HOME = codexHome;
+    else delete environment.CODEX_HOME;
     const child = spawnProcess(executable, ['app-server', '--listen', 'stdio://'], {
       shell: false,
       stdio: 'pipe',
-      ...(codexHome ? { env: { ...process.env, CODEX_HOME: codexHome } } : {}),
+      env: environment,
     }) as ChildProcessWithoutNullStreams;
     let buffer = '';
     let outputBytes = 0;
@@ -155,7 +197,7 @@ function runCodexSession(
     child.stdin.once('error', communicationError);
     child.once('close', () => finish(new Error('Codex kota yanıtı alınamadı.')));
     if (signal.aborted) abort();
-    else send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'agent-usage', version: '0.1.0' } } });
+    else send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'agent-usage', version: '0.1.1' } } });
   });
 }
 
@@ -176,9 +218,28 @@ export class CodexAdapter implements ProviderAdapter {
   async fetch(signal: AbortSignal): Promise<ProviderSnapshot> {
     const executable = await this.resolve();
     if (!executable) return this.snapshot('unconfigured', 'Codex çalıştırılabilir dosyası bulunamadı.');
-    const codexHome = await (this.options.discoverCodexHome ?? discoverCodexHome)();
-    const response = await runCodexSession(executable, signal, this.options.spawnProcess, codexHome);
-    const parsed = parseCodexRateLimits(response.result);
+    const codexHomes = await (this.options.discoverCodexHomes ?? discoverCodexHomes)();
+    const results = await Promise.allSettled(codexHomes.map(async (codexHome) => {
+      const response = await runCodexSession(executable, signal, this.options.spawnProcess, codexHome);
+      return parseCodexRateLimits(response.result);
+    }));
+    const profiles = results
+      .filter((result): result is PromiseFulfilledResult<ReturnType<typeof parseCodexRateLimits>> => result.status === 'fulfilled')
+      .map((result) => result.value)
+      .sort((left, right) => {
+        const rank = (plan?: string) => plan?.toLowerCase() === 'pro' ? 0 : plan?.toLowerCase() === 'plus' ? 1 : 2;
+        return rank(left.plan) - rank(right.plan);
+      });
+    if (!profiles.length) {
+      const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+      throw failure?.reason instanceof Error ? failure.reason : new Error('Codex kota yanıtı alınamadı.');
+    }
+    const plans = [...new Set(profiles.map((profile) => profile.plan).filter((plan): plan is string => Boolean(plan)))];
+    const parsed = {
+      windows: profiles.flatMap((profile) => profile.windows),
+      ...(profiles.length === 1 && profiles[0].balance !== undefined ? { balance: profiles[0].balance } : {}),
+      ...(plans.length ? { plan: plans.map((plan) => displayPlan(plan).replace(/^Codex /, '')).join(' + ') } : {}),
+    };
     return { providerId: this.id, displayName: this.displayName, status: 'ok', fetchedAt: this.now(), ...parsed };
   }
 

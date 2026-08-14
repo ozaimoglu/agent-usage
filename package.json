@@ -1,6 +1,6 @@
 {
   "name": "agent-usage",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "desktopName": "agent-usage",
   "description": "Codex, Agy, Claude Code and Z.ai Coding Plan usage tray application",
