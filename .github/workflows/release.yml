@@ -27,11 +27,13 @@ jobs:
       - run: npm run typecheck
       - name: Build application
         run: npm run build
+      - name: Package AppImage
+        run: npx electron-builder --linux AppImage --x64 --publish never
       - name: Package Debian
         shell: bash
         run: |
           set +e
-          npx electron-builder --linux deb --x64 2>&1 | tee package-debian.log
+          npx electron-builder --linux deb --x64 --publish never 2>&1 | tee package-debian.log
           package_status=${PIPESTATUS[0]}
           set -e
           if [ "$package_status" -ne 0 ]; then
@@ -41,7 +43,7 @@ jobs:
             exit "$package_status"
           fi
       - name: Create checksums
-        run: sha256sum release/*.deb > release/SHA256SUMS
+        run: sha256sum release/*.deb release/*.AppImage > release/SHA256SUMS
       - name: Resolve version
         id: version
         run: node -e "console.log('tag=v' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
@@ -53,4 +55,4 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --target "$GITHUB_SHA" --title "Agent Usage $TAG" --notes "Ubuntu/Linux x64 early beta." --prerelease
           fi
-          gh release upload "$TAG" release/*.deb release/SHA256SUMS --clobber
+          gh release upload "$TAG" release/*.deb release/*.AppImage release/SHA256SUMS --clobber
