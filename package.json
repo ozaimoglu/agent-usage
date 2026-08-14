@@ -1,0 +1,119 @@
+{
+  "name": "agent-usage",
+  "version": "0.1.0",
+  "private": true,
+  "desktopName": "agent-usage",
+  "description": "Codex, Agy, Claude Code and Z.ai Coding Plan usage tray application",
+  "homepage": "https://github.com/ozaimoglu/agent-usage",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ozaimoglu/agent-usage.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ozaimoglu/agent-usage/issues"
+  },
+  "author": {
+    "name": "ozaimoglu",
+    "url": "https://github.com/ozaimoglu"
+  },
+  "main": "dist-electron/main/index.js",
+  "scripts": {
+    "dev": "vite --config vite.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.main.json",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.main.json && vite build --config vite.config.ts",
+    "package": "npm run build && electron-builder --linux deb AppImage --x64",
+    "package:dir": "npm run build && electron-builder --dir"
+  },
+  "dependencies": {
+    "electron-log": "^5.4.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.4",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^24.2.1",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.0.12",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.1",
+    "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "io.github.ozaimoglu.agentusage",
+    "productName": "Agent Usage",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "dist/renderer/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "tray-icon.png"
+      },
+      {
+        "from": "build/tray-icon.svg",
+        "to": "tray-icon.svg"
+      },
+      {
+        "from": "resources/linux-tray.py",
+        "to": "linux-tray.py"
+      }
+    ],
+    "linux": {
+      "category": "Utility",
+      "icon": "build/icon.png",
+      "maintainer": "ozaimoglu <ozaimoglu@users.noreply.github.com>",
+      "syncDesktopName": true,
+      "target": [
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Agent-Usage-${version}-${arch}.${ext}"
+    },
+    "toolsets": {
+      "appimage": "1.0.3"
+    },
+    "appImage": {
+      "artifactName": "Agent-Usage-${version}-${arch}.${ext}"
+    },
+    "deb": {
+      "artifactName": "Agent-Usage-${version}-${arch}.${ext}",
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libx11-6",
+        "python3",
+        "python3-gi",
+        "gir1.2-atspi-2.0"
+      ]
+    }
+  }
+}

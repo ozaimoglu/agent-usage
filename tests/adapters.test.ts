@@ -1,0 +1,182 @@
+import { EventEmitter } from 'node:events';
+import { describe, expect, it, vi } from 'vitest';
+import { AgyAdapter, parseAgyUsage } from '../src/main/adapters/agy';
+import { CodexAdapter, discoverCodexHome, parseCodexRateLimits } from '../src/main/adapters/codex';
+
+type FakeChild = EventEmitter & {
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+  stdin: EventEmitter & { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn>; destroyed: boolean; writableEnded: boolean };
+  kill: ReturnType<typeof vi.fn>;
+};
+
+function childProcess(): FakeChild {
+  const child = new EventEmitter() as FakeChild;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = Object.assign(new EventEmitter(), {
+    write: vi.fn(),
+    end: vi.fn(),
+    destroyed: false,
+    writableEnded: false,
+  });
+  child.kill = vi.fn(() => true);
+  return Object.assign(child, { spawnargs: [], spawnfile: '', pid: 1, connected: false, exitCode: null, signalCode: null, killed: false, stdio: [] });
+}
+
+function fakeSpawn(stdout: string, code = 0) {
+  return vi.fn((_file: string, _args: readonly string[], _options: object) => {
+    const child = childProcess();
+    queueMicrotask(() => {
+      if (stdout) child.stdout.emit('data', Buffer.from(stdout));
+      child.emit('close', code);
+    });
+    return child;
+  });
+}
+
+function interactiveCodexSpawn() {
+  return vi.fn((_file: string, _args: readonly string[], _options: object) => {
+    const child = childProcess();
+    child.stdin.write.mockImplementation((raw: string) => {
+      const message = JSON.parse(raw) as { id: number };
+      queueMicrotask(() => {
+        if (message.id === 1) child.stdout.emit('data', Buffer.from('{"id":1,"result":{}}\n'));
+        if (message.id === 2) {
+          const result = {
+            rateLimits: { primary: { usedPercent: 20 } },
+            rateLimitsByLimitId: { codex: { primary: { usedPercent: 20, windowDurationMins: 300, resetsAt: 1_800_000_000 } } },
+            credits: { balance: '12.5' },
+            planType: 'pro',
+          };
+          child.stdout.emit('data', Buffer.from(`${JSON.stringify({ id: 2, result })}\n`));
+        }
+      });
+      return true;
+    });
+    return child;
+  });
+}
+
+describe('CLI adapters', () => {
+  it('waits for Codex initialize before requesting quota and cleans up', async () => {
+    const spawn = interactiveCodexSpawn();
+    const adapter = new CodexAdapter({
+      resolve: async () => '/tmp/codex',
+      spawnProcess: spawn as never,
+      discoverCodexHome: async () => '/tmp/codex-profile',
+    });
+    const snapshot = await adapter.fetch(new AbortController().signal);
+    const child = spawn.mock.results[0].value;
+
+    expect(snapshot).toMatchObject({
+      status: 'ok',
+      balance: 12.5,
+      plan: 'pro',
+      windows: [{ remainingPercent: 80, windowMinutes: 300, resetAt: '2027-01-15T08:00:00.000Z' }],
+    });
+    expect(spawn).toHaveBeenCalledWith('/tmp/codex', ['app-server', '--listen', 'stdio://'], expect.objectContaining({
+      shell: false,
+      env: expect.objectContaining({ CODEX_HOME: '/tmp/codex-profile' }),
+    }));
+    expect(child.stdin.write).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(child.stdin.write.mock.calls[0][0])).toMatchObject({ id: 1, method: 'initialize' });
+    expect(JSON.parse(child.stdin.write.mock.calls[1][0])).toMatchObject({ id: 2, method: 'account/rateLimits/read' });
+    expect(child.stdin.end).toHaveBeenCalledOnce();
+    expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+  });
+
+  it('uses only an explicitly configured Codex home', async () => {
+    await expect(discoverCodexHome(' /tmp/codex-profile ')).resolves.toBe('/tmp/codex-profile');
+    await expect(discoverCodexHome('')).resolves.toBeUndefined();
+  });
+
+  it('renames the bengalfox Codex account without merging two accounts', () => {
+    const parsed = parseCodexRateLimits({
+      rateLimits: {
+        rateLimitsByLimitId: {
+          codex_bengalfox: { primary: { usedPercent: 10 } },
+          codex_work: { primary: { usedPercent: 30 } },
+        },
+      },
+    });
+    expect(parsed.windows.map((window) => window.label)).toEqual([
+      'codex_plus · Primary',
+      'codex_work · Primary',
+    ]);
+  });
+
+  it('flattens Agy 1.1 nested Gemini buckets into quota windows', () => {
+    const windows = parseAgyUsage({
+      status: 'ok',
+      command: { data: { groups: [{
+        name: 'Gemini Models',
+        buckets: [
+          { id: 'weekly', name: 'Weekly Limit Remaining', window: 'weekly', remaining_fraction: 0.75, reset_time: '2026-08-20T12:00:00Z' },
+          { id: 'five-hour', name: 'Five Hour Limit Remaining', window: '5h', remaining_fraction: 0.4, reset_time: '2026-08-13T18:00:00Z' },
+        ],
+      }] } },
+    });
+    expect(windows).toEqual([
+      expect.objectContaining({ label: 'Gemini - 7D', remainingPercent: 75, usedPercent: 25, windowMinutes: 10080, resetAt: '2026-08-20T12:00:00Z' }),
+      expect.objectContaining({ label: 'Gemini - 5H', remainingPercent: 40, usedPercent: 60, windowMinutes: 300, resetAt: '2026-08-13T18:00:00Z' }),
+    ]);
+  });
+
+  it('compacts Claude and GPT Agy quota labels', () => {
+    const windows = parseAgyUsage({
+      status: 'ok',
+      command: { data: { groups: [{
+        name: 'Claude and GPT models',
+        buckets: [
+          { name: 'Weekly', window: 'weekly', remaining_fraction: 0.6 },
+          { name: 'Five Hour', window: '5h', remaining_fraction: 0.8 },
+        ],
+      }] } },
+    });
+    expect(windows.map((window) => window.label)).toEqual(['Claude/GPT - 7D', 'Claude/GPT - 5H']);
+  });
+
+  it('uses Agy non-shell JSON command', async () => {
+    const spawn = fakeSpawn('{"status":"ok","data":{"groups":[{"id":"x","remaining_fraction":0.5}]}}');
+    const adapter = new AgyAdapter({ resolve: async () => '/tmp/agy', spawnProcess: spawn as never });
+    await expect(adapter.fetch(new AbortController().signal)).resolves.toMatchObject({ status: 'ok' });
+    expect(spawn).toHaveBeenCalledWith('/tmp/agy', ['--print', '/usage', '--output-format', 'json'], expect.objectContaining({ shell: false }));
+  });
+
+  it('does not expose raw process output in errors', async () => {
+    const adapter = new AgyAdapter({ resolve: async () => '/tmp/agy', spawnProcess: fakeSpawn('secret raw output', 1) as never });
+    await expect(adapter.fetch(new AbortController().signal)).rejects.toThrow('kota bilgisi alınamadı');
+  });
+
+  it('kills a Codex process when aborted', async () => {
+    const spawn = vi.fn(() => childProcess());
+    const controller = new AbortController();
+    const adapter = new CodexAdapter({ resolve: async () => '/tmp/codex', spawnProcess: spawn as never });
+    const promise = adapter.fetch(controller.signal);
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+    controller.abort();
+    await expect(promise).rejects.toThrow('zaman aşımına');
+    expect(spawn.mock.results[0].value.kill).toHaveBeenCalledWith('SIGKILL');
+  });
+
+  it('kills Agy immediately when resolution finishes after timeout', async () => {
+    const spawn = vi.fn(() => childProcess());
+    const controller = new AbortController();
+    controller.abort();
+    const adapter = new AgyAdapter({ resolve: async () => '/tmp/agy', spawnProcess: spawn as never });
+    await expect(adapter.fetch(controller.signal)).rejects.toThrow('zaman aşımına');
+    expect(spawn.mock.results[0].value.kill).toHaveBeenCalledWith('SIGKILL');
+  });
+
+  it('handles Codex stdin errors without leaking their contents', async () => {
+    const spawn = vi.fn(() => childProcess());
+    const adapter = new CodexAdapter({ resolve: async () => '/tmp/codex', spawnProcess: spawn as never });
+    const promise = adapter.fetch(new AbortController().signal);
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+    const child = spawn.mock.results[0].value;
+    child.stdin.emit('error', new Error('secret EPIPE detail'));
+    await expect(promise).rejects.toThrow('iletişim kurulamadı');
+    expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+  });
+});
