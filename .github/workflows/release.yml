@@ -25,7 +25,12 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run typecheck
-      - run: npm run package
+      - name: Build application
+        run: npm run build
+      - name: Package AppImage
+        run: npx electron-builder --linux AppImage --x64
+      - name: Package Debian
+        run: npx electron-builder --linux deb --x64
       - name: Create checksums
         run: sha256sum release/*.deb release/*.AppImage > release/SHA256SUMS
       - name: Resolve version
