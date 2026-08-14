@@ -28,6 +28,8 @@ jobs:
       - name: Build application
         run: npm run build
       - name: Package AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
         run: npx electron-builder --linux AppImage --x64
       - name: Package Debian
         run: npx electron-builder --linux deb --x64
