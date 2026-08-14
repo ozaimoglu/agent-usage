@@ -28,7 +28,18 @@ jobs:
       - name: Build application
         run: npm run build
       - name: Package Debian
-        run: npx electron-builder --linux deb --x64
+        shell: bash
+        run: |
+          set +e
+          npx electron-builder --linux deb --x64 2>&1 | tee package-debian.log
+          package_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$package_status" -ne 0 ]; then
+            while IFS= read -r line; do
+              echo "::error title=Debian package::$line"
+            done < <(tail -n 30 package-debian.log)
+            exit "$package_status"
+          fi
       - name: Create checksums
         run: sha256sum release/*.deb > release/SHA256SUMS
       - name: Resolve version
