@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  package:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run package
+      - name: Create checksums
+        run: sha256sum release/*.deb release/*.AppImage > release/SHA256SUMS
+      - name: Resolve version
+        id: version
+        run: node -e "console.log('tag=v' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "Agent Usage $TAG" --notes "Ubuntu/Linux x64 early beta." --prerelease
+          fi
+          gh release upload "$TAG" release/*.deb release/*.AppImage release/SHA256SUMS --clobber
