@@ -7,6 +7,7 @@ export interface UsageWindow {
   resetAt?: string;
   windowMinutes?: number;
   rawUnit?: string;
+  detail?: string;
 }
 
 export interface ProviderSnapshot {
@@ -18,6 +19,7 @@ export interface ProviderSnapshot {
   plan?: string;
   balance?: number;
   windows?: UsageWindow[];
+  usageUnavailable?: boolean;
   error?: string;
 }
 
@@ -29,9 +31,10 @@ export interface ProviderAdapter {
 }
 
 export type Language = 'system' | 'tr' | 'en';
-export const PROVIDER_IDS = ['codex', 'agy', 'zai-coding-plan', 'claude-code'] as const;
+export const PROVIDER_IDS = ['codex', 'agy', 'gemini-cli', 'qwen-code', 'opencode', 'cursor-cli', 'github-copilot', 'zai-coding-plan', 'claude-code'] as const;
 export type ProviderId = typeof PROVIDER_IDS[number];
 export type EnabledProviders = Record<ProviderId, boolean>;
+export type ExecutableId = 'codex' | 'agy' | 'claude' | 'gemini' | 'qwen' | 'opencode' | 'cursor-agent' | 'copilot';
 
 export interface AppSettings {
   version: 1;
@@ -40,7 +43,9 @@ export interface AppSettings {
   language: Language;
   zaiCredentialConsent: boolean;
   enabledProviders: EnabledProviders;
-  executableOverrides: Partial<Record<'codex' | 'agy' | 'claude', string>>;
+  autoDetectedProviders: ProviderId[];
+  providerAutoSetupVersion: number;
+  executableOverrides: Partial<Record<ExecutableId, string>>;
 }
 
 export interface UsagePayload {
@@ -56,6 +61,8 @@ export interface RendererApi {
   };
   view: {
     quit(): Promise<void>;
+    resize(height: number): Promise<void>;
+    onShown(listener: () => void): () => void;
     onSettings(listener: () => void): () => void;
   };
   settings: {
@@ -70,6 +77,8 @@ export const IPC = {
   usageChanged: 'usage:changed',
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
+  viewShown: 'view:shown',
   viewSettings: 'view:settings',
+  viewResize: 'view:resize',
   viewQuit: 'view:quit',
 } as const;

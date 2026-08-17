@@ -35,7 +35,7 @@ export class SettingsService {
     if (patch.executableOverrides) {
       if (!isPlainRecord(patch.executableOverrides)) throw new Error('Geçersiz çalıştırılabilir dosya yolları.');
       const entries = Object.entries(patch.executableOverrides);
-      if (entries.some(([key, value]) => !['codex', 'agy', 'claude'].includes(key) || !validOverride(value))) throw new Error('Geçersiz çalıştırılabilir dosya yolu.');
+      if (entries.some(([key, value]) => !['codex', 'agy', 'claude', 'gemini', 'qwen', 'opencode', 'cursor-agent', 'copilot'].includes(key) || !validOverride(value))) throw new Error('Geçersiz çalıştırılabilir dosya yolu.');
     }
     const next: AppSettings = { ...current, ...patch, version: 1, enabledProviders: { ...current.enabledProviders, ...patch.enabledProviders }, executableOverrides: { ...current.executableOverrides, ...patch.executableOverrides } };
     const updateAutostart = (patch.autostart !== undefined && patch.autostart !== current.autostart)
@@ -53,6 +53,25 @@ export class SettingsService {
         throw error;
       }
     }
+    this.value = next;
+    return next;
+  }
+
+  async enableNewlyDetectedProviders(detected: AppSettings['autoDetectedProviders']): Promise<AppSettings> {
+    const current = await this.get();
+    const alreadyDetected = new Set(current.autoDetectedProviders);
+    const needsInitialSetup = current.providerAutoSetupVersion < 1;
+    const newlyDetected = needsInitialSetup ? detected : detected.filter((id) => !alreadyDetected.has(id));
+    if (!needsInitialSetup && !newlyDetected.length) return current;
+    const enabledProviders = { ...current.enabledProviders };
+    newlyDetected.forEach((id) => { enabledProviders[id] = true; });
+    const next: AppSettings = {
+      ...current,
+      enabledProviders,
+      autoDetectedProviders: [...new Set([...current.autoDetectedProviders, ...detected])],
+      providerAutoSetupVersion: 1,
+    };
+    await this.storage.writeSettings(next);
     this.value = next;
     return next;
   }

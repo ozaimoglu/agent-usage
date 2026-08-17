@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolveExecutable } from '../src/main/executableResolver';
+import { resolveExecutable, STANDARD_EXECUTABLE_DIRS } from '../src/main/executableResolver';
 
 const temporaryDirectories: string[] = [];
 
@@ -17,12 +17,25 @@ afterEach(async () => {
 });
 
 describe('resolveExecutable', () => {
+  it('searches Apple Silicon Homebrew and MacPorts installations', () => {
+    expect(STANDARD_EXECUTABLE_DIRS).toContain('/opt/homebrew/bin');
+    expect(STANDARD_EXECUTABLE_DIRS).toContain('/opt/local/bin');
+  });
+
   it('finds user-local executables when a desktop PATH is empty', async () => {
     const home = await temporaryHome();
     const executable = path.join(home, '.local', 'bin', 'agy');
     await mkdir(path.dirname(executable), { recursive: true });
     await writeFile(executable, '#!/bin/sh\n', { mode: 0o755 });
     await expect(resolveExecutable('agy', undefined, '', home)).resolves.toBe(executable);
+  });
+
+  it('finds OpenCode standalone installations', async () => {
+    const home = await temporaryHome();
+    const executable = path.join(home, '.opencode', 'bin', 'opencode');
+    await mkdir(path.dirname(executable), { recursive: true });
+    await writeFile(executable, '#!/bin/sh\n', { mode: 0o755 });
+    await expect(resolveExecutable('opencode', undefined, '', home)).resolves.toBe(executable);
   });
 
   it('finds the newest installed NVM executable', async () => {

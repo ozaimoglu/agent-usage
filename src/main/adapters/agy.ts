@@ -103,7 +103,14 @@ export class AgyAdapter implements ProviderAdapter {
   async fetch(signal: AbortSignal): Promise<ProviderSnapshot> {
     const executable = await this.resolve();
     if (!executable) return this.snapshot('unconfigured', 'Agy çalıştırılabilir dosyası bulunamadı.');
-    const result = await runProcess(executable, ['--print', '/usage', '--output-format', 'json'], signal, this.options.spawnProcess);
+    const result = await runProcess(
+      executable,
+      ['--print', '/usage', '--output-format', 'json'],
+      signal,
+      this.options.spawnProcess,
+      undefined,
+      { resolveOnExit: true },
+    );
     if (result.code !== 0) throw new Error('Agy kota bilgisi alınamadı.');
     let payload: unknown;
     try { payload = JSON.parse(result.stdout); } catch { throw new Error('Agy yanıtı geçersiz.'); }

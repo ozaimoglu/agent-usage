@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { LinuxAutostart, reconcileAutostart } from '../src/main/autostart';
+import { LinuxAutostart, MacOSAutostart, reconcileAutostart } from '../src/main/autostart';
 
 describe('LinuxAutostart', () => {
   it('starts silently at login while preserving paths with spaces', async () => {
@@ -29,5 +29,24 @@ describe('LinuxAutostart', () => {
     await reconcileAutostart({ onboardingComplete: false, autostart: true }, manager, reportError);
     expect(manager.setEnabled).not.toHaveBeenCalled();
     expect(reportError).not.toHaveBeenCalled();
+  });
+});
+
+describe('MacOSAutostart', () => {
+  it('registers the packaged application as a hidden login item', async () => {
+    const application = { setLoginItemSettings: vi.fn() };
+    const autostart = new MacOSAutostart(application);
+
+    await autostart.setEnabled(true);
+    expect(application.setLoginItemSettings).toHaveBeenCalledWith({
+      openAtLogin: true,
+      args: ['--hidden'],
+    });
+
+    await autostart.setEnabled(false);
+    expect(application.setLoginItemSettings).toHaveBeenLastCalledWith({
+      openAtLogin: false,
+      args: ['--hidden'],
+    });
   });
 });

@@ -15,7 +15,14 @@ concurrency:
 jobs:
   package:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-14
+            platform: macos
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,11 +32,11 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run typecheck
-      - name: Build application
-        run: npm run build
       - name: Package AppImage
+        if: matrix.platform == 'linux'
         run: npx electron-builder --linux AppImage --x64 --publish never
       - name: Package Debian
+        if: matrix.platform == 'linux'
         shell: bash
         run: |
           set +e
@@ -42,8 +49,32 @@ jobs:
             done < <(tail -n 30 package-debian.log)
             exit "$package_status"
           fi
+      - name: Package macOS
+        if: matrix.platform == 'macos'
+        run: npm run package:mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-usage-${{ matrix.platform }}
+          path: |
+            release/*.deb
+            release/*.AppImage
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: agent-usage-*
+          path: release
+          merge-multiple: true
       - name: Create checksums
-        run: sha256sum release/*.deb release/*.AppImage > release/SHA256SUMS
+        run: sha256sum release/* > release/SHA256SUMS
       - name: Resolve version
         id: version
         run: node -e "console.log('tag=v' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
@@ -53,6 +84,6 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "Agent Usage $TAG" --notes "Ubuntu/Linux x64 early beta." --prerelease
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "Agent Usage $TAG" --notes "Linux x64 and macOS (Apple Silicon/Intel) early beta." --prerelease
           fi
-          gh release upload "$TAG" release/*.deb release/*.AppImage release/SHA256SUMS --clobber
+          gh release upload "$TAG" release/* --clobber

@@ -15,13 +15,15 @@ describe('Storage settings validation', () => {
         language: '',
         zaiCredentialConsent: null,
         enabledProviders: { codex: false, agy: 'yes', 'claude-code': null, unknown: true },
-        executableOverrides: { codex: 'codex', agy: '/opt/agy', extra: '/tmp/bad' },
+        autoDetectedProviders: ['codex', 'qwen-code', 'qwen-code', 'unknown', 42],
+        executableOverrides: { codex: 'codex', agy: '/opt/agy', opencode: '/opt/opencode', extra: '/tmp/bad' },
       }));
       await expect(new Storage(root).readSettings()).resolves.toEqual({
         ...DEFAULT_SETTINGS,
         autostart: true,
         enabledProviders: { ...DEFAULT_SETTINGS.enabledProviders, codex: false },
-        executableOverrides: { agy: '/opt/agy' },
+        autoDetectedProviders: ['codex', 'qwen-code'],
+        executableOverrides: { agy: '/opt/agy', opencode: '/opt/opencode' },
       });
     } finally {
       await rm(root, { recursive: true, force: true });

@@ -53,6 +53,15 @@ export function fitPanelSize(preferred: PanelSize, work: PanelRect): PanelSize {
   };
 }
 
+export function clampPanelHeight(height: number, minimum: number, maximum: number): number {
+  if (!Number.isFinite(height)) return minimum;
+  return Math.max(minimum, Math.min(Math.round(height), maximum));
+}
+
+export function panelBlurGraceDeadline(platform: NodeJS.Platform, openedAt: number, graceMs: number): number {
+  return platform === 'linux' ? openedAt + graceMs : openedAt;
+}
+
 export function calculatePanelPosition(
   panel: PanelSize,
   tray: PanelRect | undefined,

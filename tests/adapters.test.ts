@@ -4,16 +4,16 @@ import { AgyAdapter, parseAgyUsage } from '../src/main/adapters/agy';
 import { CodexAdapter, discoverCodexHomes, parseCodexRateLimits } from '../src/main/adapters/codex';
 
 type FakeChild = EventEmitter & {
-  stdout: EventEmitter;
-  stderr: EventEmitter;
+  stdout: EventEmitter & { destroy: ReturnType<typeof vi.fn> };
+  stderr: EventEmitter & { destroy: ReturnType<typeof vi.fn> };
   stdin: EventEmitter & { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn>; destroyed: boolean; writableEnded: boolean };
   kill: ReturnType<typeof vi.fn>;
 };
 
 function childProcess(): FakeChild {
   const child = new EventEmitter() as FakeChild;
-  child.stdout = new EventEmitter();
-  child.stderr = new EventEmitter();
+  child.stdout = Object.assign(new EventEmitter(), { destroy: vi.fn() });
+  child.stderr = Object.assign(new EventEmitter(), { destroy: vi.fn() });
   child.stdin = Object.assign(new EventEmitter(), {
     write: vi.fn(),
     end: vi.fn(),
@@ -195,6 +195,22 @@ describe('CLI adapters', () => {
     const adapter = new AgyAdapter({ resolve: async () => '/tmp/agy', spawnProcess: spawn as never });
     await expect(adapter.fetch(new AbortController().signal)).resolves.toMatchObject({ status: 'ok' });
     expect(spawn).toHaveBeenCalledWith('/tmp/agy', ['--print', '/usage', '--output-format', 'json'], expect.objectContaining({ shell: false }));
+  });
+
+  it('accepts complete Agy output when a descendant keeps the pipes open', async () => {
+    const spawn = vi.fn(() => {
+      const child = childProcess();
+      queueMicrotask(() => {
+        child.stdout.emit('data', Buffer.from('{"status":"ok","data":{"groups":[{"id":"x","remaining_fraction":0.5}]}}'));
+        child.emit('exit', 0);
+      });
+      return child;
+    });
+    const adapter = new AgyAdapter({ resolve: async () => '/tmp/agy', spawnProcess: spawn as never });
+
+    await expect(adapter.fetch(new AbortController().signal)).resolves.toMatchObject({ status: 'ok' });
+    expect(spawn.mock.results[0].value.stdout.destroy).toHaveBeenCalledOnce();
+    expect(spawn.mock.results[0].value.stderr.destroy).toHaveBeenCalledOnce();
   });
 
   it('does not expose raw process output in errors', async () => {

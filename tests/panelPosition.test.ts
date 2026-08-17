@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculatePanelPosition, fitPanelSize } from '../src/main/panelPosition';
+import { calculatePanelPosition, clampPanelHeight, fitPanelSize, panelBlurGraceDeadline } from '../src/main/panelPosition';
 
 const panel = { width: 390, height: 620 };
 const work = { x: 72, y: 32, width: 1848, height: 1048 };
@@ -47,5 +47,18 @@ describe('panel geometry', () => {
     expect(fitted).toEqual({ width: 360, height: 568 });
     expect(calculatePanelPosition(fitted, { x: 170, y: 0, width: 24, height: 24 }, smallWork))
       .toEqual({ x: 0, y: 32 });
+  });
+
+  it('keeps content-driven heights inside the supported range', () => {
+    expect(clampPanelHeight(132.4, 180, 720)).toBe(180);
+    expect(clampPanelHeight(428.6, 180, 720)).toBe(429);
+    expect(clampPanelHeight(910, 180, 720)).toBe(720);
+    expect(clampPanelHeight(Number.NaN, 180, 720)).toBe(180);
+  });
+
+  it('limits the tray hand-off blur grace period to Linux', () => {
+    expect(panelBlurGraceDeadline('linux', 1_000, 2_000)).toBe(3_000);
+    expect(panelBlurGraceDeadline('darwin', 1_000, 2_000)).toBe(1_000);
+    expect(panelBlurGraceDeadline('win32', 1_000, 2_000)).toBe(1_000);
   });
 });

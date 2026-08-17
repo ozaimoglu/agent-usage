@@ -10,11 +10,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
   language: 'system',
   zaiCredentialConsent: false,
   enabledProviders: {
-    codex: true,
-    agy: true,
-    'zai-coding-plan': true,
+    codex: false,
+    agy: false,
+    'gemini-cli': false,
+    'qwen-code': false,
+    opencode: false,
+    'cursor-cli': false,
+    'github-copilot': false,
+    'zai-coding-plan': false,
     'claude-code': false,
   },
+  autoDetectedProviders: [],
+  providerAutoSetupVersion: 0,
   executableOverrides: {},
 };
 
@@ -41,6 +48,9 @@ function sanitizeSettings(raw: unknown): AppSettings {
   if (!isRecord(raw) || raw.version !== 1) return { ...DEFAULT_SETTINGS, enabledProviders: { ...DEFAULT_SETTINGS.enabledProviders }, executableOverrides: {} };
   const overrides = isRecord(raw.executableOverrides) ? raw.executableOverrides : {};
   const providers = isRecord(raw.enabledProviders) ? raw.enabledProviders : {};
+  const autoDetectedProviders = Array.isArray(raw.autoDetectedProviders)
+    ? raw.autoDetectedProviders.filter((id): id is AppSettings['autoDetectedProviders'][number] => typeof id === 'string' && PROVIDER_IDS.includes(id as never))
+    : [];
   return {
     version: 1,
     onboardingComplete: typeof raw.onboardingComplete === 'boolean' ? raw.onboardingComplete : DEFAULT_SETTINGS.onboardingComplete,
@@ -51,10 +61,19 @@ function sanitizeSettings(raw: unknown): AppSettings {
       id,
       typeof providers[id] === 'boolean' ? providers[id] : DEFAULT_SETTINGS.enabledProviders[id],
     ])) as AppSettings['enabledProviders'],
+    autoDetectedProviders: [...new Set(autoDetectedProviders)],
+    providerAutoSetupVersion: typeof raw.providerAutoSetupVersion === 'number' && Number.isInteger(raw.providerAutoSetupVersion) && raw.providerAutoSetupVersion >= 0
+      ? raw.providerAutoSetupVersion
+      : 0,
     executableOverrides: {
       ...(validOverride(overrides.codex) ? { codex: overrides.codex } : {}),
       ...(validOverride(overrides.agy) ? { agy: overrides.agy } : {}),
       ...(validOverride(overrides.claude) ? { claude: overrides.claude } : {}),
+      ...(validOverride(overrides.gemini) ? { gemini: overrides.gemini } : {}),
+      ...(validOverride(overrides.qwen) ? { qwen: overrides.qwen } : {}),
+      ...(validOverride(overrides.opencode) ? { opencode: overrides.opencode } : {}),
+      ...(validOverride(overrides['cursor-agent']) ? { 'cursor-agent': overrides['cursor-agent'] } : {}),
+      ...(validOverride(overrides.copilot) ? { copilot: overrides.copilot } : {}),
     },
   };
 }

@@ -58,7 +58,7 @@ describe('Linux tray bridge', () => {
   });
   it("hides menu rows for disabled providers", () => {
     const labels = linuxTrayLabels({ refreshing: false, snapshots: [] }, {
-      codex: true, agy: false, "zai-coding-plan": false, "claude-code": false,
+      codex: true, agy: false, "gemini-cli": false, "qwen-code": false, opencode: false, "cursor-cli": false, "github-copilot": false, "zai-coding-plan": false, "claude-code": false,
     });
     expect(labels.codexPro).toContain("Codex Pro");
     expect(labels.codexPlus).toContain("Codex Plus");

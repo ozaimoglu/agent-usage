@@ -9,7 +9,9 @@ const IPC = Object.freeze({
   usageChanged: 'usage:changed',
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
+  viewShown: 'view:shown',
   viewSettings: 'view:settings',
+  viewResize: 'view:resize',
   viewQuit: 'view:quit',
 });
 
@@ -29,6 +31,12 @@ const api: RendererApi = {
   },
   view: {
     quit: () => ipcRenderer.invoke(IPC.viewQuit) as Promise<void>,
+    resize: (height) => ipcRenderer.invoke(IPC.viewResize, height) as Promise<void>,
+    onShown: (listener) => {
+      const handler = () => listener();
+      ipcRenderer.on(IPC.viewShown, handler);
+      return () => ipcRenderer.removeListener(IPC.viewShown, handler);
+    },
     onSettings: (listener) => {
       const handler = () => listener();
       ipcRenderer.on(IPC.viewSettings, handler);

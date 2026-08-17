@@ -5,6 +5,10 @@ import type { AppSettings } from '../common/types';
 
 export interface AutostartManager { setEnabled(enabled: boolean): Promise<void>; }
 
+export interface LoginItemApplication {
+  setLoginItemSettings(settings: { openAtLogin: boolean; args: string[] }): void;
+}
+
 function quoteDesktop(value: string): string {
   return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
 }
@@ -50,6 +54,13 @@ export class LinuxAutostart implements AutostartManager {
   }
 }
 
+export class MacOSAutostart implements AutostartManager {
+  constructor(private readonly application: LoginItemApplication) {}
+  async setEnabled(enabled: boolean): Promise<void> {
+    this.application.setLoginItemSettings({ openAtLogin: enabled, args: ['--hidden'] });
+  }
+}
+
 export class NoopAutostart implements AutostartManager {
-  async setEnabled(): Promise<void> { /* Future platform implementation. */ }
+  async setEnabled(): Promise<void> { /* Unsupported platform. */ }
 }

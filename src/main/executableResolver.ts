@@ -3,7 +3,13 @@ import { access, readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-const STANDARD_DIRS = ['/usr/local/bin', '/usr/bin', '/snap/bin'];
+export const STANDARD_EXECUTABLE_DIRS = [
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+  '/opt/local/bin',
+  '/usr/bin',
+  '/snap/bin',
+];
 
 async function nvmCandidates(name: string, homeDirectory: string): Promise<string[]> {
   const versionsRoot = path.join(homeDirectory, '.nvm', 'versions', 'node');
@@ -28,14 +34,18 @@ export async function resolveExecutable(
     path.join(homeDirectory, '.local', 'bin'),
     path.join(homeDirectory, '.npm-global', 'bin'),
     path.join(homeDirectory, '.nvm', 'current', 'bin'),
+    path.join(homeDirectory, '.volta', 'bin'),
+    path.join(homeDirectory, '.opencode', 'bin'),
+    path.join(homeDirectory, '.qwen', 'bin'),
+    path.join(homeDirectory, '.gemini', 'bin'),
   ];
   const candidates = override
     ? [override]
     : [
         ...(envPath?.split(path.delimiter) ?? []).map((directory) => path.join(directory, name)),
         ...userDirs.map((directory) => path.join(directory, name)),
-        ...STANDARD_DIRS.map((directory) => path.join(directory, name)),
         ...await nvmCandidates(name, homeDirectory),
+        ...STANDARD_EXECUTABLE_DIRS.map((directory) => path.join(directory, name)),
       ];
   for (const candidate of [...new Set(candidates)]) {
     if (!path.isAbsolute(candidate)) continue;
