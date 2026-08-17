@@ -33,7 +33,8 @@ describe('renderer', () => {
     expect(document.querySelector('[data-provider-icon="agy"]')).toHaveClass('provider-icon-agy');
     expect(document.querySelector('.brand-mark')?.getAttribute('viewBox')).toBe('7 6 156 144');
     expect(document.documentElement.lang).toBe('en');
-    expect(screen.getByText('Usage')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Usage' })).toHaveClass('sr-only');
+    expect(document.querySelector('.overview > .sync-time')).toBeInTheDocument();
     expect(screen.getByText('19%')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: '5 hour: 19% left' })).toHaveAttribute('aria-valuenow', '19');
     expect(screen.getByText('Stale data')).toBeInTheDocument();

@@ -67,9 +67,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .panel-content::-webkit-scrollbar-thumb { background: #34363a; border-radius: 8px; }
 
 .dashboard { padding-bottom: 8px; }
-.overview { padding: 18px 14px 13px; }
-.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.section-heading h2, .page-heading h2, .onboarding h2 { margin: 0; color: var(--text); font-size: 18px; font-weight: 600; line-height: 1.2; letter-spacing: -.025em; }
+.overview { min-height: 26px; display: flex; align-items: center; justify-content: flex-end; padding: 6px 14px; }
+.page-heading h2, .onboarding h2 { margin: 0; color: var(--text); font-size: 18px; font-weight: 600; line-height: 1.2; letter-spacing: -.025em; }
 .sync-time { display: flex; align-items: baseline; gap: 6px; color: var(--muted); font-size: 10px; }
 .sync-time span { text-transform: lowercase; }
 .sync-time strong { color: var(--secondary); font: 500 10px/1 ui-monospace, "SFMono-Regular", Menlo, monospace; font-variant-numeric: tabular-nums; }

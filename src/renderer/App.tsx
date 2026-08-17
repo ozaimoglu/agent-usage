@@ -121,10 +121,8 @@ function Dashboard({ payload, language, refresh, openSettings, t }: {
 
   return <div className="dashboard">
     <section className="overview" aria-labelledby="overview-title">
-      <div className="section-heading">
-        <h2 id="overview-title">{t('overview')}</h2>
-        <div className="sync-time" aria-live="polite"><span>{payload.refreshing ? t('refreshing') : t('lastSync')}</span><strong>{lastSync ? new Intl.DateTimeFormat(language, { timeStyle: 'short' }).format(new Date(lastSync)) : '—'}</strong></div>
-      </div>
+      <h2 className="sr-only" id="overview-title">{t('overview')}</h2>
+      <div className="sync-time" aria-live="polite"><span>{payload.refreshing ? t('refreshing') : t('lastSync')}</span><strong>{lastSync ? new Intl.DateTimeFormat(language, { timeStyle: 'short' }).format(new Date(lastSync)) : '—'}</strong></div>
     </section>
     {payload.snapshots.length ? <section className="provider-table" aria-label={t('providers')}>
       {payload.snapshots.map((snapshot) => <ProviderRow key={snapshot.providerId} snapshot={snapshot} language={language} t={t} />)}
